@@ -1,1069 +1,221 @@
 #pragma once
 
-#include <SDL2/SDL.h>
-#include "types.h"
+#include "graphics.h"
 
-class graphics
+#include "camera.h"
+#include "object.h"
+#include "light.h"
+#include "physics.h"
+#include "clock.h"
+
+#include <algorithm>
+#include <list>
+#include <fstream>
+#include <strstream>
+
+class engine
 {
 public:
-    SDL_Renderer *renderer;
-    SDL_Window *window;
-    int w, h;
+    graphics render_class;
 
-    void init(char *name, int w, int h, Uint32 flags);
-    void update();
+    SDL_Texture *tex;
+    SDL_Surface *surf;
 
-    SDL_Texture *create_texture(SDL_Surface *surface, int w, int h);
+    vector<int> rendering_cameras;
 
-    void image(SDL_Surface *surface);
-    void draw_texture(SDL_Texture *tex, int x, int y, int w, int h);
-    void draw_surface(SDL_Surface *surface, int x, int y, int w, int h);
-    void draw_line(int x1, int y1, int x2, int y2, int r, int g, int b);
-    void draw_rect(int x, int y, int w, int h, int r, int g, int b);
-    void draw_all(int r, int g, int b);
-    void draw_filled_triangle(triangle tri);
+    vector<camera> cams;
 
-    void texture_pixel(SDL_Texture *tex, int x, int y, int r, int g, int b);
-    void texture_line(SDL_Texture *tex, int x1, int y1, int x2, int y2, int r, int g, int b);
-    void texture_rect(SDL_Texture *tex, int x, int y, int w, int h, int r, int g, int b);
-    void texture_all(SDL_Texture *tex, int r, int g, int b);
-    void texture_filled_triangle(SDL_Texture *tex, triangle tri);
+    vector<object> objs;
+    vector<light> lights;
 
-    void surface_pixel(SDL_Surface *surface, int x, int y, int r, int g, int);
-    void surface_line(SDL_Surface *surface, int x1, int y1, int x2, int y2, int r, int g, int b);
-    void surface_rect(SDL_Surface *surface, int x, int y, int w, int h, int r, int g, int b);
-    void surface_all(SDL_Surface *surface, int r, int g, int b);
-    void surface_filled_triangle(SDL_Surface *surface, triangle tri);
+    float fTheta = 0.0f;
+    float fDeltaTime = 1.0f;
+
+    void init(char *name, int w, int h, Uint32 flags, int cameras);
+    void update(float fElapsedTime);
+    int add(char *path);
+    int add(lightType type, color3f c, float strength, vec3d position, vec3d direction);
+
+    int create();
+    int tri(int obj, triangle tri);
 };
 
-void graphics::init(char *name, int w_w, int w_h, Uint32 flags)
+float fov = 0;
+
+void engine::init(char *name, int w, int h, Uint32 flags, int cameras)
 {
-    SDL_Init(SDL_INIT_VIDEO);
-    window = SDL_CreateWindow(name, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w_w, w_h, flags);
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    w = w_w;
-    h = w_h;
-}
+    render_class.init(name, w, h, flags);
 
-void graphics::update()
-{
-    SDL_RenderPresent(renderer);
-}
+    surf = SDL_CreateRGBSurface(0, w, h, 32, 0, 0, 0, 0);
 
-SDL_Texture *graphics::create_texture(SDL_Surface *surface, int w, int h)
-{
-    if (surface == NULL)
-        return SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, w, h);
-}
-
-void graphics::image(SDL_Surface *surface)
-{
-    draw_surface(surface, 0, 0, w, h);
-}
-
-void graphics::draw_texture(SDL_Texture *tex, int x, int y, int w, int h)
-{
-    SDL_Rect src;
-    src.x = 0;
-    src.y = 0;
-    src.w = 0;
-    src.h = 0;
-    SDL_QueryTexture(tex, NULL, NULL, &src.w, &src.h);
-
-    SDL_Rect dst;
-    dst.x = x;
-    dst.y = y;
-    dst.w = w;
-    dst.h = h;
-
-    SDL_RenderCopy(renderer, tex, &src, &dst);
-}
-
-void graphics::draw_surface(SDL_Surface *surface, int x, int y, int w, int h)
-{
-    SDL_Texture *tmp = SDL_CreateTextureFromSurface(renderer, surface);
-    draw_texture(tmp, x, y, w, h);
-    SDL_DestroyTexture(tmp);
-}
-
-void graphics::draw_line(int x1, int y1, int x2, int y2, int r, int g, int b)
-{
-    SDL_SetRenderDrawColor(renderer, r, g, b, 255);
-    SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
-}
-
-void graphics::draw_rect(int x, int y, int w, int h, int r, int g, int b)
-{
-    SDL_SetRenderDrawColor(renderer, r, g, b, 255);
-    SDL_Rect rect;
-    rect.x = x;
-    rect.y = y;
-    rect.w = w;
-    rect.h = h;
-    SDL_RenderFillRect(renderer, &rect);
-}
-
-void graphics::draw_all(int r, int g, int b)
-{
-    draw_rect(0, 0, w, h, r, g, b);
-}
-
-void graphics::draw_filled_triangle(triangle tri)
-{
-    int x1 = tri.p[0].x;
-    int y1 = tri.p[0].y;
-    int x2 = tri.p[1].x;
-    int y2 = tri.p[1].y;
-    int x3 = tri.p[2].x;
-    int y3 = tri.p[2].y;
-
-    int t1x, t2x, y, minx, maxx, t1xp, t2xp;
-    bool changed1 = false;
-    bool changed2 = false;
-    int signx1, signx2, dx1, dy1, dx2, dy2;
-    int e1, e2;
-    // Sort vertices
-    if (y1 > y2)
+    camera cam;
+    for (int i = 0; i < cameras; i++)
     {
-        swap(y1, y2);
-        swap(x1, x2);
+        cams.push_back(cam);
+        cams[i].infill.r = 150;
+        cams[i].infill.g = 200;
+        cams[i].infill.b = 250;
+        cams[i].init(90, w, h, 0.1, 1000, 1);
     }
-    if (y1 > y3)
+}
+
+void engine::update(float fElapsedTime)
+{
+    fDeltaTime = fElapsedTime;
+
+    // Clear The Previous Camera Image
+    for (int i = 0; i < cams.size(); i++)
     {
-        swap(y1, y3);
-        swap(x1, x3);
-    }
-    if (y2 > y3)
-    {
-        swap(y2, y3);
-        swap(x2, x3);
+        SDL_LockSurface(cams[i].image);
+        cams[i].clear();
     }
 
-    t1x = t2x = x1;
-    y = y1; // Starting points
-    dx1 = (int)(x2 - x1);
-    if (dx1 < 0)
+    mat4x4 matRotZ, matRotX;
+
+    // Translate World Into it's position
+    matRotX = Matrix_MakeRotationX(fTheta);
+    matRotZ = Matrix_MakeRotationZ(fTheta * 0.5f);
+
+    mat4x4 matTrans;
+    matTrans = Matrix_MakeTranslation(0.0f, 0.0f, 0.0f);
+
+    mat4x4 matWorld;
+    matWorld = Matrix_MakeIdentity();
+    matWorld = Matrix_MultiplyMatrix(matRotZ, matRotX);
+    matWorld = Matrix_MultiplyMatrix(matWorld, matTrans);
+
+    // Update Cameras
+    for (int i = 0; i < cams.size(); i++)
+        cams[i].update();
+
+    for (int obj_i = 0; obj_i < objs.size(); obj_i++)
     {
-        dx1 = -dx1;
-        signx1 = -1;
-    }
-    else
-        signx1 = 1;
-    dy1 = (int)(y2 - y1);
+        object obj = objs[obj_i];
 
-    dx2 = (int)(x3 - x1);
-    if (dx2 < 0)
-    {
-        dx2 = -dx2;
-        signx2 = -1;
-    }
-    else
-        signx2 = 1;
-    dy2 = (int)(y3 - y1);
+        mesh m = obj.translated;
 
-    if (dy1 > dx1)
-    { // swap values
-        swap(dx1, dy1);
-        changed1 = true;
-    }
-    if (dy2 > dx2)
-    { // swap values
-        swap(dy2, dx2);
-        changed2 = true;
-    }
-
-    e2 = (int)(dx2 >> 1);
-    // Flat top, just process the second half
-    if (y1 == y2)
-        goto next;
-    e1 = (int)(dx1 >> 1);
-
-    for (int i = 0; i < dx1;)
-    {
-        t1xp = 0;
-        t2xp = 0;
-        if (t1x < t2x)
+        for (int tri_i = 0; tri_i < m.tris.size(); tri_i++)
         {
-            minx = t1x;
-            maxx = t2x;
-        }
-        else
-        {
-            minx = t2x;
-            maxx = t1x;
-        }
-        // process first line until y value is about to change
-        while (i < dx1)
-        {
-            i++;
-            e1 += dy1;
-            while (e1 >= dx1)
+            triangle tri = m.tris[tri_i];
+
+            for (int i = 0; i < lights.size(); i++)
             {
-                e1 -= dx1;
-                if (changed1)
-                    t1xp = signx1; // t1x += signx1;
-                else
-                    goto next1;
+                lights[i].calculate_color(&tri);
             }
-            if (changed1)
-                break;
-            else
-                t1x += signx1;
-        }
-        // Move line
-    next1:
-        // process second line until y value is about to change
-        while (1)
-        {
-            e2 += dy2;
-            while (e2 >= dx2)
-            {
-                e2 -= dx2;
-                if (changed2)
-                    t2xp = signx2; // t2x += signx2;
-                else
-                    goto next2;
-            }
-            if (changed2)
-                break;
-            else
-                t2x += signx2;
-        }
-    next2:
-        if (minx > t1x)
-            minx = t1x;
-        if (minx > t2x)
-            minx = t2x;
-        if (maxx < t1x)
-            maxx = t1x;
-        if (maxx < t2x)
-            maxx = t2x;
 
-        draw_line(minx, y, maxx, y, tri.color.r * tri.idensity.r, tri.color.g * tri.idensity.g, tri.color.b * tri.idensity.b);
+            triangle triProjected, triTransformed, triViewed;
 
-        if (!changed1)
-            t1x += signx1;
-        t1x += t1xp;
-        if (!changed2)
-            t2x += signx2;
-        t2x += t2xp;
-        y += 1;
-        if (y == y2)
-            break;
+            triTransformed.p[0] = Matrix_MultiplyVector(matWorld, tri.p[0]);
+            triTransformed.p[1] = Matrix_MultiplyVector(matWorld, tri.p[1]);
+            triTransformed.p[2] = Matrix_MultiplyVector(matWorld, tri.p[2]);
+            triTransformed.color = tri.color;
+            triTransformed.idensity = tri.idensity;
+            triTransformed.isTextured = tri.isTextured;
+            triTransformed.texture = tri.texture;
+            triTransformed.normal = tri.normal;
+            triTransformed.t[0] = tri.t[0];
+            triTransformed.t[1] = tri.t[1];
+            triTransformed.t[2] = tri.t[2];
+
+            // Render The Triangle
+            for (int i = 0; i < cams.size(); i++)
+                cams[i].render(triTransformed);
+        }
     }
-next:
-    // Second half
-    dx1 = (int)(x3 - x2);
-    if (dx1 < 0)
-    {
-        dx1 = -dx1;
-        signx1 = -1;
-    }
-    else
-        signx1 = 1;
-    dy1 = (int)(y3 - y2);
-    t1x = x2;
-
-    if (dy1 > dx1)
-    { // swap values
-        swap(dy1, dx1);
-        changed1 = true;
-    }
-    else
-        changed1 = false;
-
-    e1 = (int)(dx1 >> 1);
-
-    for (int i = 0; i <= dx1; i++)
-    {
-        t1xp = 0;
-        t2xp = 0;
-        if (t1x < t2x)
-        {
-            minx = t1x;
-            maxx = t2x;
-        }
-        else
-        {
-            minx = t2x;
-            maxx = t1x;
-        }
-        // process first line until y value is about to change
-        while (i < dx1)
-        {
-            e1 += dy1;
-            while (e1 >= dx1)
-            {
-                e1 -= dx1;
-                if (changed1)
-                {
-                    t1xp = signx1;
-                    break;
-                } // t1x += signx1;
-                else
-                    goto next3;
-            }
-            if (changed1)
-                break;
-            else
-                t1x += signx1;
-            if (i < dx1)
-                i++;
-        }
-    next3:
-        // process second line until y value is about to change
-        while (t2x != x3)
-        {
-            e2 += dy2;
-            while (e2 >= dx2)
-            {
-                e2 -= dx2;
-                if (changed2)
-                    t2xp = signx2;
-                else
-                    goto next4;
-            }
-            if (changed2)
-                break;
-            else
-                t2x += signx2;
-        }
-    next4:
-
-        if (minx > t1x)
-            minx = t1x;
-        if (minx > t2x)
-            minx = t2x;
-        if (maxx < t1x)
-            maxx = t1x;
-        if (maxx < t2x)
-            maxx = t2x;
-
-        draw_line(minx, y, maxx, y, tri.color.r * tri.idensity.r, tri.color.g * tri.idensity.g, tri.color.b * tri.idensity.b);
-
-        if (!changed1)
-            t1x += signx1;
-        t1x += t1xp;
-        if (!changed2)
-            t2x += signx2;
-        t2x += t2xp;
-        y += 1;
-        if (y > y3)
-            return;
-    }
+    for (int i = 0; i < cams.size(); i++)
+        SDL_UnlockSurface(cams[i].image);
 }
 
-void graphics::texture_pixel(SDL_Texture *tex, int x, int y, int r, int g, int b)
+int engine::add(char *path)
 {
-    Uint32 *pixels = nullptr;
-    int pitch = 0;
-    Uint32 format;
+    ifstream f(path);
+    if (!f.is_open())
+        return -1;
 
-    // Get the size of the texture.
-    int w, h;
-    SDL_QueryTexture(tex, &format, NULL, &w, &h);
+    // Local cache of verts
+    vector<vec3d> verts;
+    vector<vec2d> texs;
 
-    if (x < 0 or x > w)
-        return;
-    if (y < 0 or y > h)
-        return;
+    object obj;
 
-    // Now let's make our "pixels" pointer point to the texture data.
-    if (SDL_LockTexture(tex, nullptr, (void **)&pixels, &pitch))
+    while (!f.eof())
     {
-        // If the locking fails, you might want to handle it somehow. SDL_GetError(); or something here.
-        return;
-    }
-    SDL_PixelFormat *pixelFormat = new SDL_PixelFormat;
-    pixelFormat->format = SDL_PIXELFORMAT_RGBA8888;
-    Uint32 color = SDL_MapRGB(pixelFormat, r, g, b);
+        char line[128];
+        f.getline(line, 128);
 
-    // Before setting the color, we need to know where we have to place it.
-    Uint32 pixelPosition = y * pitch + x;
+        strstream s;
+        s << line;
 
-    // Now we can set the pixel(s) we want.
-    pixels[pixelPosition] = color;
+        char junk;
 
-    // Also don't forget to unlock your texture once you're done.
-    SDL_UnlockTexture(tex);
-}
-
-void graphics::texture_line(SDL_Texture *tex, int x1, int y1, int x2, int y2, int r, int g, int b)
-{
-    // fast horizontal line
-    if (y1 == y2)
-    {
-        int32_t start = min(x1, x2);
-        int32_t end = max(x1, x2);
-
-        for (int i = start; i < end; i++)
+        if (line[0] == 'v')
         {
-            texture_pixel(tex, i, y1, r, g, b);
-        }
-        return;
-    }
-
-    // fast vertical line
-    if (x1 == x2)
-    {
-        int32_t start = min(y1, y2);
-        int32_t end = max(y1, y2);
-        for (int i = start; i < end; i++)
-        {
-            texture_pixel(tex, x1, i, r, g, b);
-        }
-        return;
-    }
-
-    // general purpose line
-    // lines are either "shallow" or "steep" based on whether the x delta
-    // is greater than the y delta
-    int32_t dx = x2 - x1;
-    int32_t dy = y2 - y1;
-    bool shallow = abs(dx) > abs(dy);
-    if (shallow)
-    {
-        // shallow version
-        int32_t s = abs(dx);          // number of steps
-        int32_t sx = dx < 0 ? -1 : 1; // x step value
-        int32_t sy = (dy << 16) / s;  // y step value in fixed 16:16
-        int32_t x = x1;
-        int32_t y = y1 << 16;
-        while (s--)
-        {
-            texture_pixel(tex, x, (y >> 16), r, g, b);
-            y += sy;
-            x += sx;
-        }
-    }
-    else
-    {
-        // steep version
-        int32_t s = abs(dy);          // number of steps
-        int32_t sy = dy < 0 ? -1 : 1; // y step value
-        int32_t sx = (dx << 16) / s;  // x step value in fixed 16:16
-        int32_t y = y1;
-        int32_t x = x1 << 16;
-        while (s--)
-        {
-            texture_pixel(tex, (x >> 16), y, r, g, b);
-            y += sy;
-            x += sx;
-        }
-    }
-}
-
-void graphics::texture_rect(SDL_Texture *tex, int x, int y, int w, int h, int r, int g, int b)
-{
-    for (int ix = x; ix < w; ix++)
-    {
-        for (int iy = y; iy < h; iy++)
-        {
-            texture_pixel(tex, ix, iy, r, g, b);
-        }
-    }
-}
-
-void graphics::texture_all(SDL_Texture *tex, int r, int g, int b)
-{
-    // Get the size of the texture.
-    int w, h;
-    SDL_QueryTexture(tex, nullptr, nullptr, &w, &h);
-
-    for (int x = 0; x < w; x++)
-    {
-        for (int y = 0; y < h; y++)
-        {
-            printf("%i %i\n", x, y);
-            texture_pixel(tex, x, y, r, g, b);
-        }
-    }
-}
-
-void graphics::texture_filled_triangle(SDL_Texture *tex, triangle tri)
-{
-    int x1 = tri.p[0].x;
-    int y1 = tri.p[0].y;
-    int x2 = tri.p[1].x;
-    int y2 = tri.p[1].y;
-    int x3 = tri.p[2].x;
-    int y3 = tri.p[2].y;
-
-    int t1x, t2x, y, minx, maxx, t1xp, t2xp;
-    bool changed1 = false;
-    bool changed2 = false;
-    int signx1, signx2, dx1, dy1, dx2, dy2;
-    int e1, e2;
-    // Sort vertices
-    if (y1 > y2)
-    {
-        swap(y1, y2);
-        swap(x1, x2);
-    }
-    if (y1 > y3)
-    {
-        swap(y1, y3);
-        swap(x1, x3);
-    }
-    if (y2 > y3)
-    {
-        swap(y2, y3);
-        swap(x2, x3);
-    }
-
-    t1x = t2x = x1;
-    y = y1; // Starting points
-    dx1 = (int)(x2 - x1);
-    if (dx1 < 0)
-    {
-        dx1 = -dx1;
-        signx1 = -1;
-    }
-    else
-        signx1 = 1;
-    dy1 = (int)(y2 - y1);
-
-    dx2 = (int)(x3 - x1);
-    if (dx2 < 0)
-    {
-        dx2 = -dx2;
-        signx2 = -1;
-    }
-    else
-        signx2 = 1;
-    dy2 = (int)(y3 - y1);
-
-    if (dy1 > dx1)
-    { // swap values
-        swap(dx1, dy1);
-        changed1 = true;
-    }
-    if (dy2 > dx2)
-    { // swap values
-        swap(dy2, dx2);
-        changed2 = true;
-    }
-
-    e2 = (int)(dx2 >> 1);
-    // Flat top, just process the second half
-    if (y1 == y2)
-        goto next;
-    e1 = (int)(dx1 >> 1);
-
-    for (int i = 0; i < dx1;)
-    {
-        t1xp = 0;
-        t2xp = 0;
-        if (t1x < t2x)
-        {
-            minx = t1x;
-            maxx = t2x;
-        }
-        else
-        {
-            minx = t2x;
-            maxx = t1x;
-        }
-        // process first line until y value is about to change
-        while (i < dx1)
-        {
-            i++;
-            e1 += dy1;
-            while (e1 >= dx1)
+            if (line[1] == ' ')
             {
-                e1 -= dx1;
-                if (changed1)
-                    t1xp = signx1; // t1x += signx1;
-                else
-                    goto next1;
+                vec3d v;
+                s >> junk >> v.x >> v.y >> v.z;
+                verts.push_back(v);
             }
-            if (changed1)
-                break;
-            else
-                t1x += signx1;
-        }
-        // Move line
-    next1:
-        // process second line until y value is about to change
-        while (1)
-        {
-            e2 += dy2;
-            while (e2 >= dx2)
+            else if (line[1] == 't')
             {
-                e2 -= dx2;
-                if (changed2)
-                    t2xp = signx2; // t2x += signx2;
-                else
-                    goto next2;
+                vec2d v;
+                s >> junk >> junk >> v.u >> v.v;
+                texs.push_back(v);
             }
-            if (changed2)
-                break;
-            else
-                t2x += signx2;
-        }
-    next2:
-        if (minx > t1x)
-            minx = t1x;
-        if (minx > t2x)
-            minx = t2x;
-        if (maxx < t1x)
-            maxx = t1x;
-        if (maxx < t2x)
-            maxx = t2x;
-
-        texture_line(tex, minx, y, maxx, y, tri.color.r * tri.idensity.r, tri.color.g * tri.idensity.g, tri.color.b * tri.idensity.b);
-
-        if (!changed1)
-            t1x += signx1;
-        t1x += t1xp;
-        if (!changed2)
-            t2x += signx2;
-        t2x += t2xp;
-        y += 1;
-        if (y == y2)
-            break;
-    }
-next:
-    // Second half
-    dx1 = (int)(x3 - x2);
-    if (dx1 < 0)
-    {
-        dx1 = -dx1;
-        signx1 = -1;
-    }
-    else
-        signx1 = 1;
-    dy1 = (int)(y3 - y2);
-    t1x = x2;
-
-    if (dy1 > dx1)
-    { // swap values
-        swap(dy1, dx1);
-        changed1 = true;
-    }
-    else
-        changed1 = false;
-
-    e1 = (int)(dx1 >> 1);
-
-    for (int i = 0; i <= dx1; i++)
-    {
-        t1xp = 0;
-        t2xp = 0;
-        if (t1x < t2x)
-        {
-            minx = t1x;
-            maxx = t2x;
-        }
-        else
-        {
-            minx = t2x;
-            maxx = t1x;
-        }
-        // process first line until y value is about to change
-        while (i < dx1)
-        {
-            e1 += dy1;
-            while (e1 >= dx1)
+            else if (line[1] == 'n')
             {
-                e1 -= dx1;
-                if (changed1)
-                {
-                    t1xp = signx1;
-                    break;
-                } // t1x += signx1;
-                else
-                    goto next3;
+                // DOSOMETHING
             }
-            if (changed1)
-                break;
-            else
-                t1x += signx1;
-            if (i < dx1)
-                i++;
         }
-    next3:
-        // process second line until y value is about to change
-        while (t2x != x3)
+        if (line[0] == 'f')
         {
-            e2 += dy2;
-            while (e2 >= dx2)
-            {
-                e2 -= dx2;
-                if (changed2)
-                    t2xp = signx2;
-                else
-                    goto next4;
-            }
-            if (changed2)
-                break;
-            else
-                t2x += signx2;
+            string str;
+            str = s.str();
+            vector<string> parts;
+            parts.push_back(split(str, " ", 1));
+            parts.push_back(split(str, " ", 2));
+            parts.push_back(split(str, " ", 3));
+
+            triangle t;
+            t.p[0] = verts[isplit(parts[0], "/", 0) - 1];
+            t.p[1] = verts[isplit(parts[1], "/", 0) - 1];
+            t.p[2] = verts[isplit(parts[2], "/", 0) - 1];
+            obj.meshData.tris.push_back(t);
         }
-    next4:
-
-        if (minx > t1x)
-            minx = t1x;
-        if (minx > t2x)
-            minx = t2x;
-        if (maxx < t1x)
-            maxx = t1x;
-        if (maxx < t2x)
-            maxx = t2x;
-
-        texture_line(tex, minx, y, maxx, y, tri.color.r * tri.idensity.r, tri.color.g * tri.idensity.g, tri.color.b * tri.idensity.b);
-
-        if (!changed1)
-            t1x += signx1;
-        t1x += t1xp;
-        if (!changed2)
-            t2x += signx2;
-        t2x += t2xp;
-        y += 1;
-        if (y > y3)
-            return;
     }
+
+    // Calculate Normals
+    obj.calculate_normals();
+    obj.update();
+    objs.push_back(obj);
+
+    return objs.size() - 1;
 }
 
-void graphics::surface_pixel(SDL_Surface *surface, int x, int y, int r, int g, int b)
+int engine::add(lightType type, color3f c, float strength, vec3d position, vec3d direction)
 {
-    Uint32 pixel = SDL_MapRGB(surface->format, r, g, b);
+    light l;
+    l.type = type;
+    l.color = c;
+    l.strength = strength;
+    l.position = position;
+    l.direction = direction;
+    lights.push_back(l);
 
-    Uint32 *pixels = (Uint32 *)surface->pixels;
-    pixels[(y * surface->w) + x] = pixel;
+    return lights.size() - 1;
 }
 
-void graphics::surface_line(SDL_Surface *surface, int x1, int y1, int x2, int y2, int r, int g, int b)
+int engine::create()
 {
-    // fast horizontal line
-    if (y1 == y2)
-    {
-        int32_t start = min(x1, x2);
-        int32_t end = max(x1, x2);
+    object obj;
+    objs.push_back(obj);
 
-        for (int i = start; i < end; i++)
-        {
-            surface_pixel(surface, i, y1, r, g, b);
-        }
-        return;
-    }
-
-    // fast vertical line
-    if (x1 == x2)
-    {
-        int32_t start = min(y1, y2);
-        int32_t end = max(y1, y2);
-        for (int i = start; i < end; i++)
-        {
-            surface_pixel(surface, x1, i, r, g, b);
-        }
-        return;
-    }
-
-    // general purpose line
-    // lines are either "shallow" or "steep" based on whether the x delta
-    // is greater than the y delta
-    int32_t dx = x2 - x1;
-    int32_t dy = y2 - y1;
-    bool shallow = abs(dx) > abs(dy);
-    if (shallow)
-    {
-        // shallow version
-        int32_t s = abs(dx);          // number of steps
-        int32_t sx = dx < 0 ? -1 : 1; // x step value
-        int32_t sy = (dy << 16) / s;  // y step value in fixed 16:16
-        int32_t x = x1;
-        int32_t y = y1 << 16;
-        while (s--)
-        {
-            surface_pixel(surface, x, (y >> 16), r, g, b);
-            y += sy;
-            x += sx;
-        }
-    }
-    else
-    {
-        // steep version
-        int32_t s = abs(dy);          // number of steps
-        int32_t sy = dy < 0 ? -1 : 1; // y step value
-        int32_t sx = (dx << 16) / s;  // x step value in fixed 16:16
-        int32_t y = y1;
-        int32_t x = x1 << 16;
-        while (s--)
-        {
-            surface_pixel(surface, (x >> 16), y, r, g, b);
-            y += sy;
-            x += sx;
-        }
-    }
+    return objs.size() - 1;
 }
 
-void graphics::surface_rect(SDL_Surface *surface, int x, int y, int w, int h, int r, int g, int b)
+int engine::tri(int obj, triangle t)
 {
-    for (int ix = x; ix < w; ix++)
-    {
-        for (int iy = y; iy < h; iy++)
-        {
-            surface_pixel(surface, ix, iy, r, g, b);
-        }
-    }
-}
+    objs[obj].meshData.tris.push_back(t);
 
-void graphics::surface_all(SDL_Surface *surface, int r, int g, int b)
-{
-    int w = surface->w;
-    int h = surface->h;
-
-    for (int x = 0; x < w; x++)
-    {
-        for (int y = 0; y < h; y++)
-        {
-            surface_pixel(surface, x, y, r, g, b);
-        }
-    }
-}
-
-void graphics::surface_filled_triangle(SDL_Surface *surface, triangle tri)
-{
-    int x1 = tri.p[0].x;
-    int y1 = tri.p[0].y;
-    int x2 = tri.p[1].x;
-    int y2 = tri.p[1].y;
-    int x3 = tri.p[2].x;
-    int y3 = tri.p[2].y;
-
-    int t1x, t2x, y, minx, maxx, t1xp, t2xp;
-    bool changed1 = false;
-    bool changed2 = false;
-    int signx1, signx2, dx1, dy1, dx2, dy2;
-    int e1, e2;
-    // Sort vertices
-    if (y1 > y2)
-    {
-        swap(y1, y2);
-        swap(x1, x2);
-    }
-    if (y1 > y3)
-    {
-        swap(y1, y3);
-        swap(x1, x3);
-    }
-    if (y2 > y3)
-    {
-        swap(y2, y3);
-        swap(x2, x3);
-    }
-
-    t1x = t2x = x1;
-    y = y1; // Starting points
-    dx1 = (int)(x2 - x1);
-    if (dx1 < 0)
-    {
-        dx1 = -dx1;
-        signx1 = -1;
-    }
-    else
-        signx1 = 1;
-    dy1 = (int)(y2 - y1);
-
-    dx2 = (int)(x3 - x1);
-    if (dx2 < 0)
-    {
-        dx2 = -dx2;
-        signx2 = -1;
-    }
-    else
-        signx2 = 1;
-    dy2 = (int)(y3 - y1);
-
-    if (dy1 > dx1)
-    { // swap values
-        swap(dx1, dy1);
-        changed1 = true;
-    }
-    if (dy2 > dx2)
-    { // swap values
-        swap(dy2, dx2);
-        changed2 = true;
-    }
-
-    e2 = (int)(dx2 >> 1);
-    // Flat top, just process the second half
-    if (y1 == y2)
-        goto next;
-    e1 = (int)(dx1 >> 1);
-
-    for (int i = 0; i < dx1;)
-    {
-        t1xp = 0;
-        t2xp = 0;
-        if (t1x < t2x)
-        {
-            minx = t1x;
-            maxx = t2x;
-        }
-        else
-        {
-            minx = t2x;
-            maxx = t1x;
-        }
-        // process first line until y value is about to change
-        while (i < dx1)
-        {
-            i++;
-            e1 += dy1;
-            while (e1 >= dx1)
-            {
-                e1 -= dx1;
-                if (changed1)
-                    t1xp = signx1; // t1x += signx1;
-                else
-                    goto next1;
-            }
-            if (changed1)
-                break;
-            else
-                t1x += signx1;
-        }
-        // Move line
-    next1:
-        // process second line until y value is about to change
-        while (1)
-        {
-            e2 += dy2;
-            while (e2 >= dx2)
-            {
-                e2 -= dx2;
-                if (changed2)
-                    t2xp = signx2; // t2x += signx2;
-                else
-                    goto next2;
-            }
-            if (changed2)
-                break;
-            else
-                t2x += signx2;
-        }
-    next2:
-        if (minx > t1x)
-            minx = t1x;
-        if (minx > t2x)
-            minx = t2x;
-        if (maxx < t1x)
-            maxx = t1x;
-        if (maxx < t2x)
-            maxx = t2x;
-
-        surface_line(surface, minx, y, maxx, y, tri.color.r * tri.idensity.r, tri.color.g * tri.idensity.g, tri.color.b * tri.idensity.b);
-
-        if (!changed1)
-            t1x += signx1;
-        t1x += t1xp;
-        if (!changed2)
-            t2x += signx2;
-        t2x += t2xp;
-        y += 1;
-        if (y == y2)
-            break;
-    }
-next:
-    // Second half
-    dx1 = (int)(x3 - x2);
-    if (dx1 < 0)
-    {
-        dx1 = -dx1;
-        signx1 = -1;
-    }
-    else
-        signx1 = 1;
-    dy1 = (int)(y3 - y2);
-    t1x = x2;
-
-    if (dy1 > dx1)
-    { // swap values
-        swap(dy1, dx1);
-        changed1 = true;
-    }
-    else
-        changed1 = false;
-
-    e1 = (int)(dx1 >> 1);
-
-    for (int i = 0; i <= dx1; i++)
-    {
-        t1xp = 0;
-        t2xp = 0;
-        if (t1x < t2x)
-        {
-            minx = t1x;
-            maxx = t2x;
-        }
-        else
-        {
-            minx = t2x;
-            maxx = t1x;
-        }
-        // process first line until y value is about to change
-        while (i < dx1)
-        {
-            e1 += dy1;
-            while (e1 >= dx1)
-            {
-                e1 -= dx1;
-                if (changed1)
-                {
-                    t1xp = signx1;
-                    break;
-                } // t1x += signx1;
-                else
-                    goto next3;
-            }
-            if (changed1)
-                break;
-            else
-                t1x += signx1;
-            if (i < dx1)
-                i++;
-        }
-    next3:
-        // process second line until y value is about to change
-        while (t2x != x3)
-        {
-            e2 += dy2;
-            while (e2 >= dx2)
-            {
-                e2 -= dx2;
-                if (changed2)
-                    t2xp = signx2;
-                else
-                    goto next4;
-            }
-            if (changed2)
-                break;
-            else
-                t2x += signx2;
-        }
-    next4:
-
-        if (minx > t1x)
-            minx = t1x;
-        if (minx > t2x)
-            minx = t2x;
-        if (maxx < t1x)
-            maxx = t1x;
-        if (maxx < t2x)
-            maxx = t2x;
-
-        surface_line(surface, minx, y, maxx, y, tri.color.r * tri.idensity.r, tri.color.g * tri.idensity.g, tri.color.b * tri.idensity.b);
-
-        if (!changed1)
-            t1x += signx1;
-        t1x += t1xp;
-        if (!changed2)
-            t2x += signx2;
-        t2x += t2xp;
-        y += 1;
-        if (y > y3)
-            return;
-    }
+    return objs[obj].meshData.tris.size() - 1;
 }
