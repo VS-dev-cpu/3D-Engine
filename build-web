@@ -1,0 +1,24 @@
+echo "Running Build"
+
+source ./emsdk/emsdk_env.sh
+
+emcc src/*.cpp -I src/include -O2 -s USE_SDL=2 -s USE_SDL_IMAGE=2 -s SDL2_IMAGE_FORMATS='["png"]' -s USE_SDL_TTF=2 -s USE_SDL_MIXER=2 --preload-file res -o index.html
+
+rm index.html
+rm build/web-build.zip
+
+mkdir web-build
+
+cp base.html web-build
+mv web-build/base.html web-build/index.html
+mv index.js web-build
+mv index.wasm web-build
+mv index.data web-build
+
+zip -r web-build.zip web-build
+
+mv web-build.zip build/web-build.zip
+
+rm -r web-build
+
+echo "Build Done"
