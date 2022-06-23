@@ -9,7 +9,7 @@ rm build/web-build.zip
 
 mkdir web-build
 
-cp base.html web-build
+cp ../base.html web-build
 mv web-build/base.html web-build/index.html
 mv index.js web-build
 mv index.wasm web-build
