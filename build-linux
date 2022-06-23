@@ -1,2 +1,0 @@
-make -B
-mv goup build/goup.desktop
